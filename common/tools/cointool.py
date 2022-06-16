@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ed25519
 import fnmatch
 import glob
+import io
 import json
 import logging
 import os
+import pathlib
 import re
+import shutil
 import sys
 from collections import defaultdict
 from hashlib import sha256
-from typing import Any, Callable, Iterator, TextIO, cast
+from typing import Any, Callable, Dict, Iterator, TextIO, cast
 
 import click
 
 import coin_info
 from coin_info import Coin, CoinBuckets, Coins, CoinsInfo, FidoApps, SupportInfo
+from trezorlib import protobuf
 
 try:
     import termcolor
@@ -580,6 +585,44 @@ def check_fido(apps: FidoApps) -> bool:
     return check_passed
 
 
+# ====== coindefs generators ======
+from trezorlib.messages import EthereumDefinitionType, EthereumNetworkInfo, EthereumTokenInfo
+import time
+
+FORMAT_VERSION = "trzd1"
+FORMAT_VERSION_BYTES = FORMAT_VERSION.encode("utf-8").ljust(8, b'\0')
+DATA_VERSION_BYTES = int(time.time()).to_bytes(4, "big")
+
+
+def eth_info_from_dict(coin: Coin, msg_type: EthereumNetworkInfo | EthereumTokenInfo) -> EthereumNetworkInfo | EthereumTokenInfo:
+    attributes: Dict[str, Any] = dict()
+    for field in msg_type.FIELDS.values():
+        val = coin.get(field.name)
+
+        if field.name in ("chain_id", "slip44"):
+            attributes[field.name] = int(val)
+        elif msg_type == EthereumTokenInfo and field.name == "address":
+            attributes[field.name] = coin.get("address_bytes")
+        else:
+            attributes[field.name] = val
+
+    proto = msg_type(**attributes)
+
+    return proto
+
+
+def serialize_eth_info(info: EthereumNetworkInfo | EthereumTokenInfo, data_type_num: EthereumDefinitionType) -> bytes:
+    ser = FORMAT_VERSION_BYTES
+    ser += data_type_num.to_bytes(1, "big")
+    ser += DATA_VERSION_BYTES
+
+    buf = io.BytesIO()
+    protobuf.dump_message(buf, info)
+    ser += buf.getvalue()
+
+    return ser
+
+
 # ====== click command handlers ======
 
 
@@ -865,6 +908,70 @@ def dump(
         indent = 4 if pretty else None
         json.dump(output, outfile, indent=indent, sort_keys=True)
         outfile.write("\n")
+
+
+@cli.command()
+@click.option("-o", "--outdir", type=click.Path(resolve_path=True, file_okay=False, path_type=pathlib.Path), default="./definitions-latest")
+@click.option("-k", "--privatekey", type=click.File(mode="r"), default="./keys/ethereum_definitions/eth_defs_hex", help="Private key (text, hex formated) to use to sign data")
+def coindefs(outdir: pathlib.Path, privatekey: TextIO):
+    """Generate signed Ethereum definitions for python-trezor and others."""
+    with privatekey:
+        sign_key = ed25519.SigningKey(ed25519.from_ascii(privatekey.readline(), encoding="hex"))
+
+    def sign_and_save_definition(directory: pathlib.Path, keys: list[str], data: bytes):
+        # sign
+        sig = sign_key.sign(data)
+        complete_data = data + sig
+
+        # save
+        complete_filename = "_".join(keys) + ".dat"
+        with open(directory / complete_filename, mode="wb+") as f:
+            f.write(complete_data)
+
+    def generate_token_defs(tokens: Coins, path: pathlib.Path):
+        for token in tokens:
+            if token['address'] is None:
+                continue
+
+            # generate definition of the token
+            keys = ["token", token['address'][2:].lower()]
+            ser = serialize_eth_info(eth_info_from_dict(token, EthereumTokenInfo), EthereumDefinitionType.TOKEN)
+            sign_and_save_definition(path, keys, ser)
+
+    def generate_network_def(net: Coin, tokens: Coins):
+        if net['chain_id'] is None:
+            return
+
+        # create path for it
+        network_dir = outdir / str(net['chain_id'])
+        try:
+            network_dir.mkdir()
+        except FileExistsError:
+            raise ValueError(f"Network with chain ID {net['chain_id']} already exists - attempt to generate defs for network \"{net['name']}\" ({net['shortcut']}).")
+
+        # generate definition of the network
+        keys = ["network", str(net['chain_id']), str(net['slip44'])]
+        ser = serialize_eth_info(eth_info_from_dict(net, EthereumNetworkInfo), EthereumDefinitionType.NETWORK)
+        sign_and_save_definition(network_dir, keys, ser)
+
+        # generate tokens for the network
+        generate_token_defs(tokens, network_dir)
+
+    # clear defs directory
+    if outdir.exists():
+        shutil.rmtree(outdir)
+    outdir.mkdir(parents=True)
+
+    all_coins = coin_info.coin_info()
+
+    # group tokens by their chain_id
+    token_buckets: CoinBuckets = defaultdict(list)
+    for token in all_coins.erc20:
+        token_buckets[token['chain_id']].append(token)
+
+    for network in all_coins.eth:
+        generate_network_def(network, token_buckets[network['chain_id']])
+
 
 
 @cli.command()
