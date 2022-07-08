@@ -14,11 +14,11 @@
 # You should have received a copy of the License along with this library.
 # If not, see <https://www.gnu.org/licenses/lgpl-3.0.html>.
 
-import re
+import pathlib, re
 from typing import TYPE_CHECKING, Any, AnyStr, Dict, List, Optional, Tuple
 
 from . import exceptions, messages
-from .tools import expect, prepare_message_bytes, session
+from .tools import expect, UH_, prepare_message_bytes, session
 
 if TYPE_CHECKING:
     from .client import TrezorClient
@@ -141,6 +141,42 @@ def encode_data(value: Any, type_name: str) -> bytes:
     raise ValueError(f"Unsupported data type for direct field encoding: {type_name}")
 
 
+def get_ethereum_definitions(chain_id: Optional[int] = None, slip44: Optional[int] = None, token_address: Optional[str] = None) -> messages.EthereumEncodedDefinitions:
+    # TODO: make path configurable
+    DEFINITIONS_PATH = pathlib.Path(__file__).resolve().parent.parent.parent.parent / "common" / "tools" / "definitions-latest"
+
+    def get_definition(glob_key : str) -> Optional[bytes]:
+        files = list(DEFINITIONS_PATH.glob(glob_key))
+
+        if len(files):
+            with open(files[0], mode="rb") as f:
+                    return f.read()
+
+        return None
+
+    msg = messages.EthereumEncodedDefinitions()
+
+    # search path format is: chain_id/filename.dat
+    search_path = f"{str(chain_id) if chain_id is not None else '**'}/"
+
+    # network filenames are composed from:
+    # "network_" + chain ID + "_" + slip44 + ".dat"
+    if chain_id is not None or slip44 is not None:
+        filename = "network_{chain_id}_{slip44}.dat".format(
+            chain_id=f"{chain_id}" if chain_id is not None else "*",
+            slip44=f"{UH_(slip44)}" if slip44 is not None else "*",
+        )
+        msg.encoded_network = get_definition(search_path + filename)
+
+    # token filenames are composed from:
+    # "token_" + token address + ".dat"
+    if chain_id is not None and token_address is not None:
+        filename = f"token_{token_address[2:]}.dat"
+        msg.encoded_token = get_definition(search_path + filename)
+
+    return msg
+
+
 # ====== Client functions ====== #
 
 
@@ -149,7 +185,11 @@ def get_address(
     client: "TrezorClient", n: "Address", show_display: bool = False
 ) -> "MessageType":
     return client.call(
-        messages.EthereumGetAddress(address_n=n, show_display=show_display)
+        messages.EthereumGetAddress(
+            address_n=n,
+            show_display=show_display,
+            encoded_network=get_ethereum_definitions(slip44=n[1]).encoded_network,
+        )
     )
 
 
@@ -158,7 +198,11 @@ def get_public_node(
     client: "TrezorClient", n: "Address", show_display: bool = False
 ) -> "MessageType":
     return client.call(
-        messages.EthereumGetPublicKey(address_n=n, show_display=show_display)
+        messages.EthereumGetPublicKey(
+            address_n=n,
+            show_display=show_display,
+            encoded_network=get_ethereum_definitions(slip44=n[1]).encoded_network,
+        )
     )
 
 
@@ -187,6 +231,7 @@ def sign_tx(
         to=to,
         chain_id=chain_id,
         tx_type=tx_type,
+        definitions=get_ethereum_definitions(chain_id=chain_id, token_address=to),
     )
 
     if data is None:
@@ -246,6 +291,7 @@ def sign_tx_eip1559(
         access_list=access_list,
         data_length=length,
         data_initial_chunk=chunk,
+        definitions=get_ethereum_definitions(chain_id=chain_id, token_address=to),
     )
 
     response = client.call(msg)
@@ -269,7 +315,9 @@ def sign_message(
 ) -> "MessageType":
     return client.call(
         messages.EthereumSignMessage(
-            address_n=n, message=prepare_message_bytes(message)
+            address_n=n,
+            message=prepare_message_bytes(message),
+            encoded_network=get_ethereum_definitions(slip44=n[1]).encoded_network,
         )
     )
 
@@ -289,6 +337,7 @@ def sign_typed_data(
         address_n=n,
         primary_type=data["primaryType"],
         metamask_v4_compat=metamask_v4_compat,
+        encoded_network=get_ethereum_definitions(slip44=n[1]).encoded_network,
     )
     response = client.call(request)
 
