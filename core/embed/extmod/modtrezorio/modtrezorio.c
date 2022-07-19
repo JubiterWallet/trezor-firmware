@@ -70,6 +70,8 @@ __attribute__((unused)) static bool usb_connected_previously = false;
 /// BUTTON_LEFT: int  # button number of left button
 /// BUTTON_RIGHT: int  # button number of right button
 
+/// USB_CHECK: int # interface id for check of USB data connection
+
 /// WireInterface = Union[HID, WebUSB]
 
 STATIC const mp_rom_map_elem_t mp_module_trezorio_globals_table[] = {

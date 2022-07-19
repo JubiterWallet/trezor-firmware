@@ -1,3 +1,4 @@
+import utime
 from micropython import const
 from typing import Tuple
 
