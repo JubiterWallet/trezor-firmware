@@ -21,7 +21,6 @@
 #include "py/runtime.h"
 #ifndef TREZOR_EMULATOR
 #include "supervise.h"
-#include "usb.h"
 #endif
 
 #include "version.h"
@@ -35,6 +34,7 @@
 #include "blake2s.h"
 #include "common.h"
 #include "flash.h"
+#include "usb.h"
 
 #ifndef TREZOR_EMULATOR
 #include "image.h"
@@ -268,14 +268,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_trezorutils_reboot_to_bootloader_obj,
 ///     (and is not just connected by cable without data pins)
 ///     """
 STATIC mp_obj_t mod_trezorutils_usb_data_connected() {
-#ifndef TREZOR_EMULATOR
-  if (usb_configured() == sectrue) {
-    return mp_const_true;
-  } else {
-    return mp_const_false;
-  }
-#endif
-  return mp_const_true;
+  return usb_configured() == sectrue ? mp_const_true : mp_const_false;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_trezorutils_usb_data_connected_obj,
                                  mod_trezorutils_usb_data_connected);
