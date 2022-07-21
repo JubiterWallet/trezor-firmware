@@ -143,7 +143,7 @@ def encode_data(value: Any, type_name: str) -> bytes:
 
 def get_ethereum_definitions(chain_id: Optional[int] = None, slip44: Optional[int] = None, token_address: Optional[str] = None) -> messages.EthereumEncodedDefinitions:
     # TODO: make path configurable
-    DEFINITIONS_PATH = pathlib.Path(__file__).resolve().parent.parent.parent.parent / "common" / "tools" / "definitions-latest"
+    DEFINITIONS_PATH = pathlib.Path(__file__).resolve().parent.parent.parent.parent / "common" / "tests" / "fixtures" / "ethereum" / "definitions-latest"
 
     def get_definition(glob_key : str) -> Optional[bytes]:
         files = list(DEFINITIONS_PATH.glob(glob_key))
@@ -397,7 +397,7 @@ def sign_typed_data(
 
 
 def verify_message(
-    client: "TrezorClient", address: str, signature: bytes, message: AnyStr
+    client: "TrezorClient", address: str, signature: bytes, message: AnyStr, chain_id: int = 1
 ) -> bool:
     try:
         resp = client.call(
@@ -405,6 +405,7 @@ def verify_message(
                 address=address,
                 signature=signature,
                 message=prepare_message_bytes(message),
+                encoded_network=get_ethereum_definitions(chain_id=chain_id).encoded_network,
             )
         )
     except exceptions.TrezorFailure:
