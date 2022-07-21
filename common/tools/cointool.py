@@ -623,6 +623,10 @@ def serialize_eth_info(info: EthereumNetworkInfo | EthereumTokenInfo, data_type_
     return ser
 
 
+def sign_data(sign_key: ed25519.SigningKey, data: bytes) -> bytes:
+    return sign_key.sign(data)
+
+
 # ====== click command handlers ======
 
 
@@ -912,21 +916,30 @@ def dump(
 
 @cli.command()
 @click.option("-o", "--outdir", type=click.Path(resolve_path=True, file_okay=False, path_type=pathlib.Path), default="./definitions-latest")
-@click.option("-k", "--privatekey", type=click.File(mode="r"), default="./keys/ethereum_definitions/eth_defs_hex", help="Private key (text, hex formated) to use to sign data")
+@click.option(
+    "-k", "--privatekey",
+    type=click.File(mode="r"),
+    help="Private key (text, hex formated) to use to sign data. Could be also loaded from `PRIVATE_KEY` env variable. Provided file is preffered over env variable.",
+)
 def coindefs(outdir: pathlib.Path, privatekey: TextIO):
     """Generate signed Ethereum definitions for python-trezor and others."""
-    with privatekey:
-        sign_key = ed25519.SigningKey(ed25519.from_ascii(privatekey.readline(), encoding="hex"))
+    hex_key = None
+    if privatekey is None:
+        # load from env variable
+        hex_key = os.getenv("PRIVATE_KEY", default=None)
+    else:
+        with privatekey:
+            hex_key = privatekey.readline()
 
-    def sign_and_save_definition(directory: pathlib.Path, keys: list[str], data: bytes):
-        # sign
-        sig = sign_key.sign(data)
-        complete_data = data + sig
+    if hex_key is None:
+        raise click.ClickException("No private key for signing was provided.")
 
-        # save
+    sign_key = ed25519.SigningKey(ed25519.from_ascii(hex_key, encoding="hex"))
+
+    def save_definition(directory: pathlib.Path, keys: list[str], data: bytes):
         complete_filename = "_".join(keys) + ".dat"
         with open(directory / complete_filename, mode="wb+") as f:
-            f.write(complete_data)
+            f.write(data)
 
     def generate_token_defs(tokens: Coins, path: pathlib.Path):
         for token in tokens:
@@ -936,26 +949,34 @@ def coindefs(outdir: pathlib.Path, privatekey: TextIO):
             # generate definition of the token
             keys = ["token", token['address'][2:].lower()]
             ser = serialize_eth_info(eth_info_from_dict(token, EthereumTokenInfo), EthereumDefinitionType.TOKEN)
-            sign_and_save_definition(path, keys, ser)
+            save_definition(path, keys, ser + sign_data(sign_key, ser))
 
     def generate_network_def(net: Coin, tokens: Coins):
         if net['chain_id'] is None:
             return
 
-        # create path for it
-        network_dir = outdir / str(net['chain_id'])
+        # create path for networks identified by chain ids
+        network_dir = outdir / "by_chain_id" / str(net['chain_id'])
         try:
-            network_dir.mkdir()
+            network_dir.mkdir(parents=True)
         except FileExistsError:
-            raise ValueError(f"Network with chain ID {net['chain_id']} already exists - attempt to generate defs for network \"{net['name']}\" ({net['shortcut']}).")
+            raise click.ClickException(f"Network with chain ID {net['chain_id']} already exists - attempt to generate defs for network \"{net['name']}\" ({net['shortcut']}).")
 
         # generate definition of the network
-        keys = ["network", str(net['chain_id']), str(net['slip44'])]
+        keys = ["network"]
         ser = serialize_eth_info(eth_info_from_dict(net, EthereumNetworkInfo), EthereumDefinitionType.NETWORK)
-        sign_and_save_definition(network_dir, keys, ser)
+        complete_data = ser + sign_data(sign_key, ser)
+        save_definition(network_dir, keys, complete_data)
 
         # generate tokens for the network
         generate_token_defs(tokens, network_dir)
+
+        # create path for networks identified by slip44 ids
+        slip44_dir = outdir / "by_slip44" / str(net['slip44'])
+        if not slip44_dir.exists():
+            slip44_dir.mkdir(parents=True)
+            # TODO: save only first network??
+            save_definition(slip44_dir, keys, complete_data)
 
     # clear defs directory
     if outdir.exists():
