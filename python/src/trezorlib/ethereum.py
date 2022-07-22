@@ -14,8 +14,8 @@
 # You should have received a copy of the License along with this library.
 # If not, see <https://www.gnu.org/licenses/lgpl-3.0.html>.
 
-import pathlib, re
-from typing import TYPE_CHECKING, Any, AnyStr, Dict, List, Optional, Tuple
+import pathlib, re, requests
+from typing import TYPE_CHECKING, Any, AnyStr, Dict, List, Optional, TextIO, Tuple
 
 from . import exceptions, messages
 from .tools import expect, UH_, prepare_message_bytes, session
@@ -24,6 +24,14 @@ if TYPE_CHECKING:
     from .client import TrezorClient
     from .tools import Address
     from .protobuf import MessageType
+
+
+# TODO: change once we know the urls
+DEFINITIONS_BASE_URL="https://data.trezor.io/eth_definitions/{lookup_type}/{id}/{name}.dat"
+DEFINITIONS_NETWORK_BY_CHAINID_LOOKUP_TYPE="by_chain_id"
+DEFINITIONS_NETWORK_BY_SLIP44_LOOKUP_TYPE="by_slip44"
+DEFINITIONS_NETWORK_URI_NAME="network"
+DEFINITIONS_TOKEN_URI_NAME="token_{hex_address}"
 
 
 def int_to_big_endian(value: int) -> bytes:
@@ -141,12 +149,34 @@ def encode_data(value: Any, type_name: str) -> bytes:
     raise ValueError(f"Unsupported data type for direct field encoding: {type_name}")
 
 
-def get_ethereum_definitions(chain_id: Optional[int] = None, slip44: Optional[int] = None, token_address: Optional[str] = None) -> messages.EthereumEncodedDefinitions:
-    # TODO: make path configurable
-    DEFINITIONS_PATH = pathlib.Path(__file__).resolve().parent.parent.parent.parent / "common" / "tests" / "fixtures" / "ethereum" / "definitions-latest"
+def download_network_definition(chain_id: Optional[int] = None, slip44: Optional[int] = None) -> Optional[bytes]:
 
+    DEFINITIONS_BASE_URL="https://data.trezor.io/eth_definitions/{lookup_type}/{id}/{name}.dat"
+    DEFINITIONS_NETWORK_BY_CHAINID_LOOKUP_TYPE="by_chain_id"
+    DEFINITIONS_NETWORK_BY_SLIP44_LOOKUP_TYPE="by_slip44"
+    DEFINITIONS_NETWORK_URI_NAME="network"
+    DEFINITIONS_TOKEN_URI_NAME="token_{hex_address}"
+
+    try:
+        r = requests.get(url)
+        r.raise_for_status()
+        return r.content
+    except requests.exceptions.HTTPError as err:
+        raise RuntimeError(f"While downloading network definition from \"{url}\" following HTTP error occured: {err}")
+
+
+def download_token_definition(chain_id: Optional[int] = None, token_address: Optional[str] = None) -> Optional[bytes]:
+
+    DEFINITIONS_BASE_URL="https://data.trezor.io/eth_definitions/{lookup_type}/{id}/{name}.dat"
+    DEFINITIONS_NETWORK_BY_CHAINID_LOOKUP_TYPE="by_chain_id"
+    DEFINITIONS_NETWORK_BY_SLIP44_LOOKUP_TYPE="by_slip44"
+    DEFINITIONS_NETWORK_URI_NAME="network"
+    DEFINITIONS_TOKEN_URI_NAME="token_{hex_address}"
+
+
+def get_definitions_from_dir(path: pathlib.Path, chain_id: Optional[int] = None, slip44: Optional[int] = None, token_address: Optional[str] = None) -> messages.EthereumEncodedDefinitions:
     def get_definition(glob_key : str) -> Optional[bytes]:
-        files = list(DEFINITIONS_PATH.glob(glob_key))
+        files = list(path.glob(glob_key))
 
         if len(files):
             with open(files[0], mode="rb") as f:
@@ -182,26 +212,26 @@ def get_ethereum_definitions(chain_id: Optional[int] = None, slip44: Optional[in
 
 @expect(messages.EthereumAddress, field="address", ret_type=str)
 def get_address(
-    client: "TrezorClient", n: "Address", show_display: bool = False
+    client: "TrezorClient", n: "Address", show_display: bool = False, encoded_network: bytes = None
 ) -> "MessageType":
     return client.call(
         messages.EthereumGetAddress(
             address_n=n,
             show_display=show_display,
-            encoded_network=get_ethereum_definitions(slip44=n[1]).encoded_network,
+            encoded_network=encoded_network,
         )
     )
 
 
 @expect(messages.EthereumPublicKey)
 def get_public_node(
-    client: "TrezorClient", n: "Address", show_display: bool = False
+    client: "TrezorClient", n: "Address", show_display: bool = False, encoded_network: bytes = None
 ) -> "MessageType":
     return client.call(
         messages.EthereumGetPublicKey(
             address_n=n,
             show_display=show_display,
-            encoded_network=get_ethereum_definitions(slip44=n[1]).encoded_network,
+            encoded_network=encoded_network,
         )
     )
 
@@ -218,6 +248,7 @@ def sign_tx(
     data: Optional[bytes] = None,
     chain_id: Optional[int] = None,
     tx_type: Optional[int] = None,
+    definitions: Optional[messages.EthereumEncodedDefinitions] = None,
 ) -> Tuple[int, bytes, bytes]:
     if chain_id is None:
         raise exceptions.TrezorException("Chain ID cannot be undefined")
@@ -231,7 +262,7 @@ def sign_tx(
         to=to,
         chain_id=chain_id,
         tx_type=tx_type,
-        definitions=get_ethereum_definitions(chain_id=chain_id, token_address=to),
+        definitions=definitions,
     )
 
     if data is None:
@@ -276,6 +307,7 @@ def sign_tx_eip1559(
     max_gas_fee: int,
     max_priority_fee: int,
     access_list: Optional[List[messages.EthereumAccessList]] = None,
+    definitions: Optional[messages.EthereumEncodedDefinitions] = None,
 ) -> Tuple[int, bytes, bytes]:
     length = len(data)
     data, chunk = data[1024:], data[:1024]
@@ -291,7 +323,7 @@ def sign_tx_eip1559(
         access_list=access_list,
         data_length=length,
         data_initial_chunk=chunk,
-        definitions=get_ethereum_definitions(chain_id=chain_id, token_address=to),
+        definitions=definitions,
     )
 
     response = client.call(msg)
@@ -311,13 +343,13 @@ def sign_tx_eip1559(
 
 @expect(messages.EthereumMessageSignature)
 def sign_message(
-    client: "TrezorClient", n: "Address", message: AnyStr
+    client: "TrezorClient", n: "Address", message: AnyStr, encoded_network: bytes = None
 ) -> "MessageType":
     return client.call(
         messages.EthereumSignMessage(
             address_n=n,
             message=prepare_message_bytes(message),
-            encoded_network=get_ethereum_definitions(slip44=n[1]).encoded_network,
+            encoded_network=encoded_network,
         )
     )
 
@@ -329,6 +361,7 @@ def sign_typed_data(
     data: Dict[str, Any],
     *,
     metamask_v4_compat: bool = True,
+    encoded_network: bytes = None,
 ) -> "MessageType":
     data = sanitize_typed_data(data)
     types = data["types"]
@@ -337,7 +370,7 @@ def sign_typed_data(
         address_n=n,
         primary_type=data["primaryType"],
         metamask_v4_compat=metamask_v4_compat,
-        encoded_network=get_ethereum_definitions(slip44=n[1]).encoded_network,
+        encoded_network=encoded_network,
     )
     response = client.call(request)
 
@@ -397,7 +430,7 @@ def sign_typed_data(
 
 
 def verify_message(
-    client: "TrezorClient", address: str, signature: bytes, message: AnyStr, chain_id: int = 1
+    client: "TrezorClient", address: str, signature: bytes, message: AnyStr, chain_id: int = 1, encoded_network: bytes = None
 ) -> bool:
     try:
         resp = client.call(
@@ -405,7 +438,7 @@ def verify_message(
                 address=address,
                 signature=signature,
                 message=prepare_message_bytes(message),
-                encoded_network=get_ethereum_definitions(chain_id=chain_id).encoded_network,
+                encoded_network=encoded_network,
             )
         )
     except exceptions.TrezorFailure:
