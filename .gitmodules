@@ -27,3 +27,7 @@
 [submodule "common/defs/ethereum/chains"]
 	path = common/defs/ethereum/chains
 	url = https://github.com/ethereum-lists/chains
+[submodule "vendor/lv_micropython"]
+	path = vendor/lv_micropython
+	url = https://github.com/JubiterWallet/lv_micropython.git
+	branch = JubiterBase
