@@ -1,5 +1,6 @@
 cache-dir = "/tmp/.poetry-cache"
 [virtualenvs]
-in-project = true
+create = false
+in-project = false
 [experimental]
 new-installer = false
