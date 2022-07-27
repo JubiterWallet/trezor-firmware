@@ -21,7 +21,7 @@ flaky = "^3.6.1"  # https://github.com/box/flaky/issues/156
 pytest-ordering = "*"
 pytest-random-order = "*"
 pytest-timeout = "*"
-tox = "*"
+#tox = "*"
 dominate = "*"
 
 # hardware tests
@@ -70,6 +70,8 @@ cryptography = "*"
 hypothesis = "*"
 inotify = "*"
 yamllint = "^1.25.0"
+construct = "2.10.54"
+pyparsing = "2.0.3"
 
 [tool.poetry.dev-dependencies]
 scan-build = "*"
