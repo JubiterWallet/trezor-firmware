@@ -24,7 +24,7 @@ fn generate_qstr_bindings() {
         .clang_args(&[
             "-I",
             if is_firmware() {
-                "../../build/firmware"
+                "../../build/firmware_esp32s3"
             } else {
                 "../../build/unix"
             },
@@ -134,7 +134,7 @@ fn generate_micropython_bindings() {
             "-nostdinc",
             "-I../firmware",
             "-I../trezorhal",
-            "-I../../build/firmware",
+            "-I../../build/firmware_esp32s3",
             "-I../../vendor/micropython",
             "-I../../vendor/micropython/lib/stm32lib/STM32F4xx_HAL_Driver/Inc",
             "-I../../vendor/micropython/lib/stm32lib/CMSIS/STM32F4xx/Include",
@@ -193,6 +193,8 @@ fn generate_micropython_bindings() {
 
 fn is_firmware() -> bool {
     let target = env::var("TARGET").unwrap();
+    // riscv32imac-unknown-none-elf 
+    println!("{}",target);
     target.starts_with("thumbv7")
 }
 

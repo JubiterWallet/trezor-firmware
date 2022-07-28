@@ -43,8 +43,8 @@ SECTIONS {
   } >FLASH AT>FLASH
 
   .flash2 : ALIGN(512) {
-    build/firmware/frozen_mpy.o(.rodata*);
-    build/firmware/vendor/secp256k1-zkp/src/secp256k1.o(.rodata*);
+    build/firmware_esp32s3/frozen_mpy.o(.rodata*);
+    build/firmware_esp32s3/vendor/secp256k1-zkp/src/secp256k1.o(.rodata*);
     . = ALIGN(512);
   } >FLASH2 AT>FLASH2
 

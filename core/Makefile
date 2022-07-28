@@ -1,6 +1,6 @@
 .PHONY: vendor
 
-JOBS = 4
+JOBS = 1
 MAKE = make -j $(JOBS)
 SCONS = scons -Q -j $(JOBS)
 
@@ -11,6 +11,7 @@ BOOTLOADER_CI_BUILD_DIR  = $(BUILD_DIR)/bootloader_ci
 PRODTEST_BUILD_DIR    = $(BUILD_DIR)/prodtest
 REFLASH_BUILD_DIR     = $(BUILD_DIR)/reflash
 FIRMWARE_BUILD_DIR    = $(BUILD_DIR)/firmware
+FIRMWARE_ESP32S3_BUILD_DIR = $(BUILD_DIR)/firmware_esp32s3
 UNIX_BUILD_DIR        = $(BUILD_DIR)/unix
 RUST_BUILD_DIR        = $(BUILD_DIR)/rust
 
@@ -156,6 +157,9 @@ build_reflash: ## build reflash firmware + reflash image
 
 build_firmware: templates build_cross ## build firmware with frozen modules
 	$(SCONS) CFLAGS="$(CFLAGS)" PRODUCTION="$(PRODUCTION)" TREZOR_MODEL="$(TREZOR_MODEL)" PYOPT="$(PYOPT)" BITCOIN_ONLY="$(BITCOIN_ONLY)" UI2="$(UI2)" $(FIRMWARE_BUILD_DIR)/firmware.bin
+
+build_firmware_esp32s3: templates build_cross ## build firmware with frozen modules
+	$(SCONS) CFLAGS="$(CFLAGS)" PRODUCTION="$(PRODUCTION)" TREZOR_MODEL="$(TREZOR_MODEL)" PYOPT="$(PYOPT)" BITCOIN_ONLY="$(BITCOIN_ONLY)" UI2="$(UI2)" $(FIRMWARE_ESP32S3_BUILD_DIR)/firmware.bin
 
 build_unix: templates ## build unix port
 	$(SCONS) CFLAGS="$(CFLAGS)" $(UNIX_BUILD_DIR)/trezor-emu-core $(UNIX_PORT_OPTS) TREZOR_MODEL="$(TREZOR_MODEL)" BITCOIN_ONLY="$(BITCOIN_ONLY)" TREZOR_EMULATOR_ASAN="$(ADDRESS_SANITIZER)" UI2="$(UI2)"
